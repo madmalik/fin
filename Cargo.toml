@@ -1,0 +1,10 @@
+[package]
+name = "fin"
+version = "0.1.0"
+authors = ["tellen <tellen@informatik.uni-bonn.de>"]
+
+[dependencies]
+num-traits = "^0.1.40"
+
+[features]
+bounded_float_debug_check = []
