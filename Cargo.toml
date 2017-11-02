@@ -3,7 +3,7 @@ name = "fin"
 version = "0.0.1"
 description = "finite, NaN-free floiting point numbers"
 authors = ["tellen <matthias.tellen@gmail.com>"]
-keywords = ["float", "NaN", "finite", "infinite" "f64", "f32", "checked"]
+keywords = ["float", "NaN", "finite", "infinite", "f64", "f32", "checked"]
 license = "MIT"
 readme = "README.md"
 
