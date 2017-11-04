@@ -41,10 +41,12 @@ where
     Self: Sized,
 {
     fn as_raw(self) -> F;
+
     #[inline]
     fn map<C: Fn(F) -> F>(self, c: C) -> Self {
         UncheckedConv::from_raw(c(self.as_raw()))
     }
+
     fn from_raw(F) -> Self;
 }
 
