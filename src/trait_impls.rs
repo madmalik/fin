@@ -78,7 +78,7 @@ where
 {
     type Output = Fin<F>;
     fn neg(self) -> Self::Output {
-        Fin::<F>::new_unchecked(-AsRaw::<F>::as_raw(self))
+        Fin::<F>::from_raw(-AsRaw::<F>::as_raw(self))
     }
 }
 
@@ -109,7 +109,6 @@ impl<B, F> PartialEq<B> for Fin<F>
 where
     B: AsRaw<F> + Copy,
     F: Float,
-    Dirty<F>: AsRaw<F>,
 {
     fn eq(&self, other: &B) -> bool {
         AsRaw::<F>::as_raw(*self) == AsRaw::<F>::as_raw(*other)
@@ -120,7 +119,6 @@ impl<B, F> PartialEq<B> for Dirty<F>
 where
     B: AsRaw<F> + Copy,
     F: Float,
-    Dirty<F>: AsRaw<F>,
 {
     fn eq(&self, other: &B) -> bool {
         AsRaw::<F>::as_raw(*self) == AsRaw::<F>::as_raw(*other)

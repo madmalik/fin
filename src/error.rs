@@ -19,24 +19,28 @@ use std::error::Error;
 use std::fmt;
 
 #[derive(Debug)]
-pub enum BoundedFloatError {
+pub enum SanitizeFloatError {
     NaN,
     PosInf,
     NegInf,
 }
 
-impl Error for BoundedFloatError {
+impl Error for SanitizeFloatError {
     fn description(&self) -> &str {
         "invalid value encountered while sanitizing dirty bounded float"
     }
 }
 
-impl fmt::Display for BoundedFloatError {
+impl fmt::Display for SanitizeFloatError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            BoundedFloatError::NaN => write!(f, "invalid bounded float value: NaN (not a number)"),
-            BoundedFloatError::PosInf => write!(f, "invalid bounded float value: +∞ (+infinity)"),
-            BoundedFloatError::NegInf => write!(f, "invalid bounded float value: -∞ (+infinity)"),
+            SanitizeFloatError::NaN => write!(f, "invalid bounded float value: NaN (not a number)"),
+            SanitizeFloatError::PosInf => {
+                write!(f, "invalid bounded float value: +∞ (+infinity)")
+            }
+            SanitizeFloatError::NegInf => {
+                write!(f, "invalid bounded float value: -∞ (+infinity)")
+            }
         }
     }
 }
