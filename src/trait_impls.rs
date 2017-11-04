@@ -16,112 +16,107 @@
 // OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use std::ops::{Add, Mul, Neg};
-use super::{Fin, Dirty, AsRaw};
+use std::cmp::Ordering;
+use super::{Fin, Dirty, UncheckedConv};
 
 use num_traits::float::Float;
 
-// operations
+macro_rules! impl_common_traits {
+    ( $( $name: path),* ) => {
+        $(
+            impl<B, F> Add<B> for $name
+            where
+                F: Float,
+                B: UncheckedConv<F>,
+            {
+                type Output = Dirty<F>;
 
-impl<B, F> Add<B> for Fin<F>
-where
-    F: Float,
-    B: AsRaw<F>,
-{
-    type Output = Dirty<F>;
+                #[inline]
+                fn add(self, other: B) -> Self::Output {
+                    Dirty::from_raw(self.as_raw() + other.as_raw())
+                }
+            }
 
-    fn add(self, other: B) -> Self::Output {
-        Dirty::new(AsRaw::<F>::as_raw(self) + AsRaw::<F>::as_raw(other))
+            impl<B, F> Mul<B> for $name
+            where
+                F: Float,
+                B: UncheckedConv<F>,
+            {
+                type Output = Dirty<F>;
+
+                #[inline]
+                fn mul(self, other: B) -> Self::Output {
+                    Dirty::from_raw(self.as_raw() * other.as_raw())
+                }
+            }
+
+            impl<F> Neg for $name
+            where
+                F: Float,
+            {
+                type Output = $name;
+                #[inline]
+                fn neg(self) -> Self::Output {
+                    Self::from_raw(-self.as_raw())
+                }
+            }
+
+            impl<B, F> PartialEq<B> for $name
+            where
+                B: UncheckedConv<F> + Copy,
+                F: Float,
+            {
+                #[inline]
+                fn eq(&self, other: &B) -> bool {
+                    self.as_raw() == other.as_raw()
+                }
+            }
+
+            impl<B, F> PartialOrd<B> for $name
+            where
+                B: UncheckedConv<F> + Copy,
+                F: Float,
+            {
+                #[inline]
+                fn partial_cmp(&self, other: &B) -> Option<Ordering> {
+                    self.as_raw().partial_cmp(&other.as_raw())
+                }
+
+                #[inline]
+                fn lt(&self, other: &B) -> bool {
+                    self.as_raw().lt(&other.as_raw())
+                }
+
+                #[inline]
+                fn le(&self, other: &B) -> bool {
+                    self.as_raw().le(&other.as_raw())
+                }
+
+                #[inline]
+                fn gt(&self, other: &B) -> bool {
+                    self.as_raw().gt(&other.as_raw())
+                }
+
+                #[inline]
+                fn ge(&self, other: &B) -> bool {
+                    self.as_raw().ge(&other.as_raw())
+                }
+            }
+        )*
     }
 }
 
-impl<B, F> Add<B> for Dirty<F>
-where
-    F: Float,
-    B: AsRaw<F>,
-{
-    type Output = Dirty<F>;
-
-    fn add(self, other: B) -> Self::Output {
-        Dirty::new(AsRaw::<F>::as_raw(self) + AsRaw::<F>::as_raw(other))
-    }
-}
-
-
-impl<B, F> Mul<B> for Fin<F>
-where
-    F: Float,
-    B: AsRaw<F>,
-{
-    type Output = Dirty<F>;
-
-    fn mul(self, other: B) -> Self::Output {
-        Dirty::new(AsRaw::<F>::as_raw(self) * AsRaw::<F>::as_raw(other))
-    }
-}
-
-impl<B, F> Mul<B> for Dirty<F>
-where
-    F: Float,
-    B: AsRaw<F>,
-{
-    type Output = Dirty<F>;
-
-    fn mul(self, other: B) -> Self::Output {
-        Dirty::new(AsRaw::<F>::as_raw(self) * AsRaw::<F>::as_raw(other))
-    }
-}
-
-
-impl<F> Neg for Fin<F>
-where
-    F: Float,
-{
-    type Output = Fin<F>;
-    fn neg(self) -> Self::Output {
-        Fin::<F>::from_raw(-AsRaw::<F>::as_raw(self))
-    }
-}
-
-impl<F> Neg for Dirty<F>
-where
-    F: Float,
-{
-    type Output = Dirty<F>;
-    fn neg(self) -> Self::Output {
-        Dirty::<F>::new(-AsRaw::<F>::as_raw(self))
-    }
-}
+impl_common_traits!(Fin<F>, Dirty<F>);
 
 impl Into<Dirty<f64>> for f64 {
     fn into(self) -> Dirty<f64> {
-        Dirty::<f64>::new(self)
+        Dirty::<f64>::from_raw(self)
     }
 }
 
 impl Into<Dirty<f32>> for f32 {
     fn into(self) -> Dirty<f32> {
-        Dirty::<f32>::new(self)
-    }
-}
-
-
-impl<B, F> PartialEq<B> for Fin<F>
-where
-    B: AsRaw<F> + Copy,
-    F: Float,
-{
-    fn eq(&self, other: &B) -> bool {
-        AsRaw::<F>::as_raw(*self) == AsRaw::<F>::as_raw(*other)
-    }
-}
-
-impl<B, F> PartialEq<B> for Dirty<F>
-where
-    B: AsRaw<F> + Copy,
-    F: Float,
-{
-    fn eq(&self, other: &B) -> bool {
-        AsRaw::<F>::as_raw(*self) == AsRaw::<F>::as_raw(*other)
+        Dirty::<f32>::from_raw(self)
     }
 }
 
@@ -130,4 +125,23 @@ where
     F: Float,
     Fin<F>: PartialEq,
 {
+}
+
+
+impl<F> Ord for Fin<F>
+where
+    F: Float,
+{
+    fn cmp(&self, other: &Fin<F>) -> Ordering {
+        let a = self.as_raw();
+        let b = other.as_raw();
+
+        if a < b {
+            Ordering::Less
+        } else if a == b {
+            Ordering::Equal
+        } else {
+            Ordering::Greater
+        }
+    }
 }

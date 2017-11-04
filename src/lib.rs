@@ -36,24 +36,19 @@ pub type DirtyF64 = Dirty<f64>;
 pub type F32 = Fin<f32>;
 pub type DirtyF32 = Dirty<f32>;
 
-
-
-// two traits: BoundedFloat are all common float operatons
-
-// AsRaw<F> for dereferencing
-
-pub trait AsRaw<F>
+pub trait UncheckedConv<F>
 where
     Self: Sized,
 {
     fn as_raw(self) -> F;
     #[inline]
     fn map<C: Fn(F) -> F>(self, c: C) -> Self {
-        AsRaw::from_raw(c(self.as_raw()))
+        UncheckedConv::from_raw(c(self.as_raw()))
     }
     fn from_raw(F) -> Self;
 }
 
+// some macro helpers to replicate all the methods for FinFloat from Float
 macro_rules! non_tainting_method {
     ($method_name: ident) => {
         #[inline]
@@ -63,7 +58,7 @@ macro_rules! non_tainting_method {
     };
     ($method_name: ident, rhs) => {
         #[inline]
-            fn $method_name<O: AsRaw<F> + Copy>(self, o: O) -> Self {
+            fn $method_name<O: UncheckedConv<F> + Copy>(self, o: O) -> Self {
                 self.map(|x| Float::$method_name(x, o.as_raw()))
             }
     }
@@ -71,7 +66,6 @@ macro_rules! non_tainting_method {
 
 macro_rules! tainting_method {
     ($method_name: ident) => {
-
         #[inline]
             fn $method_name(self) -> Self {
                 self.map(Float::$method_name)
@@ -82,7 +76,7 @@ macro_rules! tainting_method {
 pub trait FinFloat<F>
 where
     F: Float,
-    Self: Sized + AsRaw<F>,
+    Self: Sized + UncheckedConv<F>,
 {
     non_tainting_method!(floor);
     non_tainting_method!(ceil);
@@ -103,14 +97,15 @@ where
     #[inline]
     fn sin_cos(self) -> (Self, Self) {
         let (s, c) = self.as_raw().sin_cos();
-        (AsRaw::from_raw(s), AsRaw::from_raw(c))
+        (UncheckedConv::from_raw(s), UncheckedConv::from_raw(c))
     }
 
-    // min and max differ in implementations from the Float rust implementation
-
-
     #[inline]
-    fn mul_add<A: AsRaw<F> + Copy, B: AsRaw<F> + Copy>(self, a: A, b: B) -> Dirty<F> {
+    fn mul_add<A: UncheckedConv<F> + Copy, B: UncheckedConv<F> + Copy>(
+        self,
+        a: A,
+        b: B,
+    ) -> Dirty<F> {
         Dirty::new(self.as_raw().mul_add(a.as_raw(), b.as_raw()))
     }
     tainting_method!(recip);
@@ -119,7 +114,7 @@ where
         Dirty::new(self.as_raw().powi(exp))
     }
     #[inline]
-    fn powf<A: AsRaw<F> + Copy>(self, exp: A) -> Dirty<F> {
+    fn powf<A: UncheckedConv<F> + Copy>(self, exp: A) -> Dirty<F> {
         Dirty::new(self.as_raw().powf(exp.as_raw()))
     }
 
@@ -127,10 +122,12 @@ where
     tainting_method!(exp);
     tainting_method!(exp2);
     tainting_method!(ln);
+
     #[inline]
-    fn log<A: AsRaw<F> + Copy>(self, a: A) -> Dirty<F> {
+    fn log<A: UncheckedConv<F> + Copy>(self, a: A) -> Dirty<F> {
         Dirty::new(self.as_raw().log(a.as_raw()))
     }
+
     tainting_method!(log2);
     tainting_method!(log10);
     tainting_method!(to_degrees);
@@ -149,6 +146,7 @@ where
         Dirty::<F>::new(self.as_raw())
     }
 
+    // TODO
     #[inline]
     fn assert_sanitized(&self) {
         if cfg!(bounded_float_debug_check) {
@@ -162,13 +160,23 @@ pub struct Fin<F: Float>(F);
 #[derive(Debug, Copy, Clone)]
 pub struct Dirty<F: Float>(F);
 
+impl<F> FinFloat<F> for Fin<F>
+where
+    F: Float,
+    Fin<F>: UncheckedConv<F>,
+{
+}
+
+impl<F> FinFloat<F> for Dirty<F>
+where
+    F: Float,
+    Dirty<F>: UncheckedConv<F>,
+{
+}
 
 impl<F: Float> Fin<F> {
     #[inline]
     pub fn try_new(f: F) -> Result<Fin<F>, SanitizeFloatError> {
-        if f.is_nan() {
-            return Err(SanitizeFloatError::NaN);
-        }
         if f.is_infinite() {
             return Err(if f.is_sign_positive() {
                 SanitizeFloatError::PosInf
@@ -176,7 +184,12 @@ impl<F: Float> Fin<F> {
                 SanitizeFloatError::NegInf
             });
         }
-        Ok(Fin(f))
+
+        if f.is_nan() {
+            return Err(SanitizeFloatError::NaN);
+        }
+
+        Ok(Fin::from_raw(f))
     }
 }
 
@@ -188,11 +201,11 @@ impl<F: Float> Dirty<F> {
 
     #[inline]
     pub fn sanitize(self) -> Result<Fin<F>, SanitizeFloatError> {
-        Fin::try_new(self.0)
+        Fin::try_new(self.as_raw())
     }
 }
 
-impl<F: Float> AsRaw<F> for Fin<F> {
+impl<F: Float> UncheckedConv<F> for Fin<F> {
     #[inline]
     fn as_raw(self) -> F {
         self.0
@@ -204,7 +217,7 @@ impl<F: Float> AsRaw<F> for Fin<F> {
     }
 }
 
-impl<F: Float> AsRaw<F> for Dirty<F> {
+impl<F: Float> UncheckedConv<F> for Dirty<F> {
     #[inline]
     fn as_raw(self) -> F {
         self.0
@@ -216,7 +229,7 @@ impl<F: Float> AsRaw<F> for Dirty<F> {
     }
 }
 
-impl<F: Float> AsRaw<F> for F {
+impl<F: Float> UncheckedConv<F> for F {
     #[inline]
     fn as_raw(self) -> F {
         self
@@ -227,21 +240,6 @@ impl<F: Float> AsRaw<F> for F {
         f
     }
 }
-
-impl<F> FinFloat<F> for Fin<F>
-where
-    F: Float,
-    Fin<F>: AsRaw<F>,
-{
-}
-
-impl<F> FinFloat<F> for Dirty<F>
-where
-    F: Float,
-    Dirty<F>: AsRaw<F>,
-{
-}
-
 
 #[cfg(test)]
 mod tests {
@@ -254,12 +252,6 @@ mod tests {
         assert!(F64::try_new(NAN).is_err());
         assert!(F64::try_new(INF).is_err());
         assert!(F64::try_new(1.0).is_ok());
-    }
-
-    #[test]
-    fn methods() {
-        F64::try_new(1.1).unwrap().floor().ceil().round();
-
     }
 
     #[test]
