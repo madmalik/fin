@@ -22,9 +22,13 @@ use num_traits::float::Float;
 use super::Dirty;
 use nanpack::NanPack;
 
+use backtrace::Backtrace;
+
+
 #[derive(Debug, Clone)]
 pub struct FloatError {
     msg: String,
+    backtrace: Backtrace,
 }
 
 #[cfg(not(build = "release"))]
@@ -34,7 +38,10 @@ lazy_static! {
 
 impl FloatError {
     pub fn new(msg: &str) -> Self {
-        Self { msg: msg.into() }
+        Self {
+            msg: msg.into(),
+            backtrace: Backtrace::new(),
+        }
     }
 
     #[cfg(not(build = "release"))]
@@ -59,7 +66,7 @@ impl Error for FloatError {
 
 impl fmt::Display for FloatError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.msg)
+        write!(f, "{}\n{:?}", self.msg, self.backtrace)
     }
 }
 
