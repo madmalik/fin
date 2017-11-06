@@ -21,14 +21,19 @@
 //!
 //! ...
 
+#[macro_use]
+extern crate lazy_static;
+extern crate backtrace;
 extern crate num_traits;
 
 mod error;
 mod trait_impls;
+mod nanpack;
 
 use num_traits::float::Float;
 
-use error::SanitizeFloatError;
+use error::FloatError;
+use nanpack::{NanPack, GetPayloadResult};
 
 pub type F64 = Fin<f64>;
 pub type DirtyF64 = Dirty<f64>;
@@ -77,7 +82,7 @@ macro_rules! tainting_method {
 
 pub trait FinFloat<F>
 where
-    F: Float,
+    F: Float + NanPack<usize>,
     Self: Sized + UncheckedConv<F>,
 {
     non_tainting_method!(floor);
@@ -162,47 +167,48 @@ pub struct Fin<F: Float>(F);
 #[derive(Debug, Copy, Clone)]
 pub struct Dirty<F: Float>(F);
 
-impl<F> FinFloat<F> for Fin<F>
+
+impl<F: NanPack<usize>> FinFloat<F> for Fin<F>
 where
     F: Float,
     Fin<F>: UncheckedConv<F>,
 {
 }
 
-impl<F> FinFloat<F> for Dirty<F>
+impl<F: NanPack<usize>> FinFloat<F> for Dirty<F>
 where
     F: Float,
     Dirty<F>: UncheckedConv<F>,
 {
 }
 
-impl<F: Float> Fin<F> {
+impl<F: Float + NanPack<usize>> Fin<F> {
     #[inline]
-    pub fn try_new(f: F) -> Result<Fin<F>, SanitizeFloatError> {
-        if f.is_infinite() {
-            return Err(if f.is_sign_positive() {
-                SanitizeFloatError::PosInf
-            } else {
-                SanitizeFloatError::NegInf
-            });
-        }
+    pub fn try_new(f: F) -> Result<Fin<F>, FloatError> {
 
-        if f.is_nan() {
-            return Err(SanitizeFloatError::NaN);
+        if cfg!(build = "release") {
+            if f.is_nan() {
+                return Err(FloatError::new("tried to sanitize NaN"));
+            }
+            Ok(Fin::from_raw(f))
+        } else {
+            match f.as_raw().get_payload() {
+                GetPayloadResult::NotNan => Ok(Fin::from_raw(f)),
+                GetPayloadResult::EmptyNan => Err(FloatError::new("tried to sanitize NaN")),
+                GetPayloadResult::Some(err_no) => Err(FloatError::from_err_no(err_no)),
+            }
         }
-
-        Ok(Fin::from_raw(f))
     }
 }
 
-impl<F: Float> Dirty<F> {
+impl<F: Float + NanPack<usize>> Dirty<F> {
     #[inline]
     pub fn new(f: F) -> Dirty<F> {
         Dirty(f)
     }
 
     #[inline]
-    pub fn sanitize(self) -> Result<Fin<F>, SanitizeFloatError> {
+    pub fn sanitize(self) -> Result<Fin<F>, FloatError> {
         Fin::try_new(self.as_raw())
     }
 }
@@ -246,13 +252,14 @@ impl<F: Float> UncheckedConv<F> for F {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f64::NAN;
-    use std::f64::INFINITY as INF;
 
     #[test]
     fn new() {
+        use std::f64::NAN;
+        use std::f64::INFINITY as INF;
+
         assert!(F64::try_new(NAN).is_err());
-        assert!(F64::try_new(INF).is_err());
+        assert!(F64::try_new(INF).is_ok());
         assert!(F64::try_new(1.0).is_ok());
     }
 

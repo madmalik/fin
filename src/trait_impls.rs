@@ -15,9 +15,12 @@
 // AGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  TORT OR OTHERWISE, ARISING FROM, OUT
 // OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use std::ops::{Add, Mul, Neg};
+use std::ops::{Add, Mul, Div, Neg};
 use std::cmp::Ordering;
+use std::fmt;
 use super::{Fin, Dirty, UncheckedConv};
+use super::error::FloatError;
+use super::nanpack::{NanPack, GetPayloadResult};
 
 use num_traits::float::Float;
 
@@ -47,6 +50,27 @@ macro_rules! impl_common_traits {
                 #[inline]
                 fn mul(self, other: B) -> Self::Output {
                     Dirty::from_raw(self.as_raw() * other.as_raw())
+                }
+            }
+
+            impl<B, F> Div<B> for $name
+            where
+                F: Float + NanPack<usize> + fmt::Debug,
+                B: UncheckedConv<F> + Copy,
+            {
+                type Output = Dirty<F>;
+
+                #[inline]
+                fn div(self, other: B) -> Self::Output {
+                    let result = self.as_raw() / other.as_raw();
+                    #[cfg(not(build = "release"))]
+                    {
+                        if let GetPayloadResult::EmptyNan = result.get_payload() {
+                            // new error, report it
+                            return FloatError::new_debug(&format!("got NaN from operation {:?} / {:?}", self.as_raw(), other.as_raw()));
+                        }
+                    }
+                    Dirty::from_raw(result)
                 }
             }
 
@@ -143,5 +167,25 @@ where
         } else {
             Ordering::Greater
         }
+    }
+}
+
+impl<F> fmt::Display for Fin<F>
+where
+    F: Float + fmt::Display,
+    Self: UncheckedConv<F>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", (*self).as_raw())
+    }
+}
+
+impl<F> fmt::Display for Dirty<F>
+where
+    F: Float + fmt::Display,
+    Self: UncheckedConv<F>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", (*self).as_raw())
     }
 }
