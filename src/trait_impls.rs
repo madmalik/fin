@@ -20,8 +20,8 @@ use std::cmp::Ordering;
 use std::fmt;
 use super::{Fin, Dirty, UncheckedConv};
 use super::error::FloatError;
-use super::nanpack::{NanPack, GetPayloadResult};
-
+use super::nanpack::NanPack;
+use super::FLOAT_ERROR_BUFFER;
 use num_traits::float::Float;
 
 macro_rules! impl_common_traits {
@@ -62,12 +62,24 @@ macro_rules! impl_common_traits {
 
                 #[inline]
                 fn div(self, other: B) -> Self::Output {
-                    let result = self.as_raw() / other.as_raw();
+                    let s = self.as_raw();
+                    let o = other.as_raw();
+                    let result = s / o;
                     #[cfg(not(build = "release"))]
                     {
-                        if let GetPayloadResult::EmptyNan = result.get_payload() {
-                            // new error, report it
-                            return FloatError::new_debug(&format!("got NaN from operation {:?} / {:?}", self.as_raw(), other.as_raw()));
+                        // got error as input
+                        match (s.is_payloaded(), o.is_payloaded()) {
+                            (true, true) => unimplemented!("input: two nans"),
+                            (false, true) => return Dirty::from_raw(o),
+                            (true, false) => return Dirty::from_raw(s),
+                            (false, false) => {
+                                if result.is_nan() {
+                                    let errno = FLOAT_ERROR_BUFFER.insert(
+                                        FloatError::div(self.as_raw(), other.as_raw()));
+                                    return Dirty::from_raw(NanPack::set_payload(errno))
+                                }
+
+                            },
                         }
                     }
                     Dirty::from_raw(result)

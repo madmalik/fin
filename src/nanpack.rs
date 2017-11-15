@@ -1,3 +1,5 @@
+// We're using manual transmutes instead of the to- and from_bits() methods to preserve the sNaNs
+#![cfg_attr(feature = "cargo-clippy", allow(transmute_int_to_float))]
 use std::mem::transmute;
 
 const F32_PAYLOAD_MASK: u32 = 0x1F_FFFF;
@@ -8,61 +10,39 @@ const F64_EMPTY_NAN: u64 = 0x7ff8_0000_0000_0000;
 
 pub trait NanPack<T> {
     fn set_payload(T) -> Self;
-    fn get_payload(self) -> GetPayloadResult<T>;
+    fn is_payloaded(self) -> bool;
+    fn get_payload(self) -> Option<T>;
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum GetPayloadResult<T> {
-    NotNan,
-    EmptyNan,
-    Some(T),
-}
+// just a little macro to avoid repeating the same stuff for f64 and f32
+macro_rules! impl_NanPack {
+    ( $f: ty, $u: ty, $payload_mask: ident, $empty_nan: ident) => {
+        impl NanPack<usize> for $f {
+            fn set_payload(val: usize) -> Self {
+                let val = (val + 1) as $u;
+                assert!(val <= $payload_mask);
+                unsafe { transmute(val | $empty_nan) }
+            }
 
-impl NanPack<usize> for f64 {
-    fn set_payload(val: usize) -> Self {
-        let val = (val + 1) as u64;
-        assert!(val <= F64_PAYLOAD_MASK);
-        unsafe { transmute(val | F64_EMPTY_NAN) }
-    }
+            fn is_payloaded(self) -> bool {
+                let bits: $u = unsafe { transmute(self) };
+                self.is_nan() && ((bits & $payload_mask) > 0)
+            }
 
-    fn get_payload(self) -> GetPayloadResult<usize> {
-        if !self.is_nan() {
-            return GetPayloadResult::NotNan;
+            fn get_payload(self) -> Option<usize> {
+                if !self.is_payloaded() {
+                    return None;
+                }
+                let bits: $u = self.to_bits();
+                let payload = bits & $payload_mask;
+                Some((payload - 1) as usize)
+            }
         }
-        let bits: u64 = unsafe { transmute(self) };
-        let payload = bits & F64_PAYLOAD_MASK;
-        if payload == 0 {
-            return GetPayloadResult::EmptyNan;
-        }
-        let payload = payload - 1;
-        if cfg!(target_pointer_width = "32") {
-            assert!(payload <= ::std::u32::MAX as u64);
-        }
-        GetPayloadResult::Some(payload as usize)
     }
 }
 
-impl NanPack<usize> for f32 {
-    fn set_payload(mut val: usize) -> Self {
-        assert!(val < F32_PAYLOAD_MASK as usize);
-        val += 1;
-        unsafe { transmute(val as u32 | F32_EMPTY_NAN) }
-    }
-
-    fn get_payload(self) -> GetPayloadResult<usize> {
-        if !self.is_nan() {
-            return GetPayloadResult::NotNan;
-        }
-        let bits: u32 = unsafe { transmute(self) };
-        let payload = bits & F32_PAYLOAD_MASK;
-        if payload == 0 {
-            return GetPayloadResult::EmptyNan;
-        }
-        let payload = payload - 1;
-        GetPayloadResult::Some(payload as usize)
-    }
-}
-
+impl_NanPack!(f64, u64, F64_PAYLOAD_MASK, F64_EMPTY_NAN);
+impl_NanPack!(f32, u32, F32_PAYLOAD_MASK, F32_EMPTY_NAN);
 
 
 #[cfg(test)]
@@ -78,7 +58,7 @@ mod tests {
             let n_bits: u64 = transmute(::std::f64::NAN);
             assert_eq!(f_bits - 1, n_bits);
         }
-        assert_eq!(f.get_payload(), GetPayloadResult::Some(0));
+        assert_eq!(f.get_payload(), Some(0));
     }
 
     #[test]
@@ -87,7 +67,7 @@ mod tests {
             let i = i * 4931;
             let f: f64 = NanPack::set_payload(i);
             assert!(f.is_nan());
-            assert_eq!(f.get_payload(), GetPayloadResult::Some(i));
+            assert_eq!(f.get_payload(), Some(i));
         }
     }
 
@@ -100,7 +80,7 @@ mod tests {
             let n_bits: u32 = transmute(::std::f32::NAN);
             assert_eq!(f_bits - 1, n_bits);
         }
-        assert_eq!(f.get_payload(), GetPayloadResult::Some(0));
+        assert_eq!(f.get_payload(), Some(0));
     }
 
     #[test]

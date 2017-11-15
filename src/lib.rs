@@ -25,15 +25,23 @@
 extern crate lazy_static;
 extern crate backtrace;
 extern crate num_traits;
+extern crate failure;
+#[macro_use]
+extern crate failure_derive;
 
 mod error;
 mod trait_impls;
 mod nanpack;
 
 use num_traits::float::Float;
+pub use failure::Error;
+use error::{FloatError, ErrorBuffer};
+use nanpack::NanPack;
 
-use error::FloatError;
-use nanpack::{NanPack, GetPayloadResult};
+#[cfg(not(build = "release"))]
+lazy_static! {
+    pub(crate) static ref FLOAT_ERROR_BUFFER: ErrorBuffer = Default::default();
+}
 
 pub type F64 = Fin<f64>;
 pub type DirtyF64 = Dirty<f64>;
@@ -152,14 +160,6 @@ where
     fn taint(self) -> Dirty<F> {
         Dirty::<F>::new(self.as_raw())
     }
-
-    // TODO
-    #[inline]
-    fn assert_sanitized(&self) {
-        if cfg!(bounded_float_debug_check) {
-            panic!("assertion");
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -168,40 +168,42 @@ pub struct Fin<F: Float>(F);
 pub struct Dirty<F: Float>(F);
 
 
-impl<F: NanPack<usize>> FinFloat<F> for Fin<F>
+impl<F> FinFloat<F> for Fin<F>
 where
-    F: Float,
+    F: Float + NanPack<usize>,
     Fin<F>: UncheckedConv<F>,
 {
 }
 
-impl<F: NanPack<usize>> FinFloat<F> for Dirty<F>
+impl<F> FinFloat<F> for Dirty<F>
 where
-    F: Float,
+    F: Float + NanPack<usize>,
     Dirty<F>: UncheckedConv<F>,
 {
 }
 
-impl<F: Float + NanPack<usize>> Fin<F> {
+impl<F> Fin<F>
+where
+    F: Float + NanPack<usize>,
+{
     #[inline]
     pub fn try_new(f: F) -> Result<Fin<F>, FloatError> {
-
-        if cfg!(build = "release") {
-            if f.is_nan() {
-                return Err(FloatError::new("tried to sanitize NaN"));
+        if f.is_nan() {
+            if cfg!(not(build = "release")) {
+                if let Some(errno) = f.get_payload() {
+                    return Err(FLOAT_ERROR_BUFFER.remove(errno));
+                }
             }
-            Ok(Fin::from_raw(f))
-        } else {
-            match f.as_raw().get_payload() {
-                GetPayloadResult::NotNan => Ok(Fin::from_raw(f)),
-                GetPayloadResult::EmptyNan => Err(FloatError::new("tried to sanitize NaN")),
-                GetPayloadResult::Some(err_no) => Err(FloatError::from_err_no(err_no)),
-            }
+            return Err(FloatError::sanitization(f).into());
         }
+        Ok(Fin::from_raw(f))
     }
 }
 
-impl<F: Float + NanPack<usize>> Dirty<F> {
+impl<F> Dirty<F>
+where
+    F: Float + NanPack<usize>,
+{
     #[inline]
     pub fn new(f: F) -> Dirty<F> {
         Dirty(f)

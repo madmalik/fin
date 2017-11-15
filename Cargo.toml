@@ -11,6 +11,5 @@ readme = "README.md"
 num-traits = "^0.1.40"
 lazy_static = "^0.2.9"
 backtrace = "0.3.3"
-
-[features]
-bounded_float_debug_check = []
+failure = { git = "https://github.com/withoutboats/failure.git"}
+failure_derive = { git = "https://github.com/withoutboats/failure_derive"}
