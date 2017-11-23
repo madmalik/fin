@@ -22,6 +22,12 @@ use std::collections::BTreeMap;
 use std::num::FpCategory;
 use backtrace;
 
+
+#[cfg(not(build = "release"))]
+lazy_static! {
+    pub(crate) static ref FLOAT_ERROR_BUFFER: ErrorBuffer = Default::default();
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum FloatClass {
     PlusZero,
@@ -108,21 +114,23 @@ impl Default for ErrorBuffer {
 #[fail(display = "{}: {}", debug_info, variant)]
 pub struct FloatError {
     debug_info: DebugInfo,
-    variant: FloatErrorInner
+    variant: FloatErrorInner,
 }
 
 impl fmt::Debug for FloatError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-       write!(f, "{}", self)
+        write!(f, "{}", self)
     }
 }
 
 #[derive(Fail, Debug, PartialEq)]
 pub(crate) enum FloatErrorInner {
-    #[fail(display = "Division of {} by {} resulted in NaN", a, b)]
-    Div { a: FloatClass, b: FloatClass},
+    #[fail(display = "Division {} by {} resulted in NaN", a, b)]
+    Div { a: FloatClass, b: FloatClass },
+    #[fail(display = "Multiplication {} by {} resulted in NaN", a, b)]
+    Mul { a: FloatClass, b: FloatClass },
     #[fail(display = "Sanitization of {}", a)]
-    Sanitization { a: FloatClass},
+    Sanitization { a: FloatClass },
 }
 
 #[derive(Debug, PartialEq)]
@@ -133,7 +141,7 @@ pub(crate) struct DebugInfo {
 
 impl fmt::Display for DebugInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-       write!(f, "{}:{}", self.filename, self.lineno)
+        write!(f, "{}:{}", self.filename, self.lineno)
     }
 }
 
@@ -149,7 +157,7 @@ fn get_caller_debug_info(mut depth: usize) -> DebugInfo {
                 if let Some(s) = symbol.filename().and_then(|f| f.to_str()) {
                     debug_info.filename.push_str(s);
                 }
-                if let Some(l) =  symbol.lineno() {
+                if let Some(l) = symbol.lineno() {
                     debug_info.lineno = l;
                 }
             });
@@ -168,19 +176,28 @@ impl FloatError {
         FloatError {
             debug_info: get_caller_debug_info(STACKTRACE_DEPTH),
             variant: FloatErrorInner::Div {
-            a: a.into(),
-            b: b.into(),
-            }
+                a: a.into(),
+                b: b.into(),
+            },
         }
     }
+
+    pub(crate) fn mul<F: Into<FloatClass>>(a: F, b: F) -> Self {
+        FloatError {
+            debug_info: get_caller_debug_info(STACKTRACE_DEPTH),
+            variant: FloatErrorInner::Mul {
+                a: a.into(),
+                b: b.into(),
+            },
+        }
+    }
+
 
     pub(crate) fn sanitization<F: Into<FloatClass>>(a: F) -> Self {
         FloatError {
             debug_info: get_caller_debug_info(STACKTRACE_DEPTH),
-            variant: FloatErrorInner::Sanitization {
-                 a: a.into(),
-                }
-            }
+            variant: FloatErrorInner::Sanitization { a: a.into() },
+        }
     }
 
 
@@ -266,14 +283,20 @@ mod tests {
         let c = a / b;
 
         let err = c.sanitize().err().unwrap();
-        assert_eq!(FloatErrorInner::Div {
+        assert_eq!(
+            FloatErrorInner::Div {
                 a: FloatClass::PlusZero,
                 b: FloatClass::PlusZero,
-            }, err.variant);
+            },
+            err.variant
+        );
 
 
         let err = F64::try_new(std::f64::NAN).err().unwrap();
-        assert_eq!(FloatErrorInner::Sanitization{a: FloatClass::NaN}, err.variant);
+        assert_eq!(
+            FloatErrorInner::Sanitization { a: FloatClass::NaN },
+            err.variant
+        );
 
     }
 

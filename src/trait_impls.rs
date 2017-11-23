@@ -18,10 +18,9 @@
 use std::ops::{Add, Mul, Div, Neg};
 use std::cmp::Ordering;
 use std::fmt;
-use super::{Fin, Dirty, UncheckedConv};
-use super::error::FloatError;
-use super::nanpack::NanPack;
-use super::FLOAT_ERROR_BUFFER;
+use super::{Clean, Dirty, UncheckedConv};
+use ::error::{FloatError, FLOAT_ERROR_BUFFER};
+use ::nanpack::NanPack;
 use num_traits::float::Float;
 
 macro_rules! impl_common_traits {
@@ -42,20 +41,38 @@ macro_rules! impl_common_traits {
 
             impl<B, F> Mul<B> for $name
             where
-                F: Float,
-                B: UncheckedConv<F>,
+                F: Float + NanPack<usize>,
+                B: UncheckedConv<F> +  Copy,
             {
                 type Output = Dirty<F>;
 
                 #[inline]
                 fn mul(self, other: B) -> Self::Output {
-                    Dirty::from_raw(self.as_raw() * other.as_raw())
+                    let s = self.as_raw();
+                    let o = other.as_raw();
+                    let result = s * o;
+                    #[cfg(not(build = "release"))]
+                    {
+                        match (s.is_payloaded(), o.is_payloaded()) {
+                            (true, true) => unimplemented!("input: two nans"),
+                            (false, true) => return Dirty::from_raw(o),
+                            (true, false) => return Dirty::from_raw(s),
+                            (false, false) => {
+                                if result.is_nan() {
+                                    let errno = FLOAT_ERROR_BUFFER.insert(
+                                        FloatError::mul(self.as_raw(), other.as_raw()));
+                                    return Dirty::from_raw(NanPack::set_payload(errno))
+                                }
+                            },
+                        }
+                    }
+                    Dirty::from_raw(result)
                 }
             }
 
             impl<B, F> Div<B> for $name
             where
-                F: Float + NanPack<usize> + fmt::Debug,
+                F: Float + NanPack<usize>,
                 B: UncheckedConv<F> + Copy,
             {
                 type Output = Dirty<F>;
@@ -67,7 +84,6 @@ macro_rules! impl_common_traits {
                     let result = s / o;
                     #[cfg(not(build = "release"))]
                     {
-                        // got error as input
                         match (s.is_payloaded(), o.is_payloaded()) {
                             (true, true) => unimplemented!("input: two nans"),
                             (false, true) => return Dirty::from_raw(o),
@@ -78,7 +94,6 @@ macro_rules! impl_common_traits {
                                         FloatError::div(self.as_raw(), other.as_raw()));
                                     return Dirty::from_raw(NanPack::set_payload(errno))
                                 }
-
                             },
                         }
                     }
@@ -142,7 +157,7 @@ macro_rules! impl_common_traits {
     }
 }
 
-impl_common_traits!(Fin<F>, Dirty<F>);
+impl_common_traits!(Clean<F>, Dirty<F>);
 
 impl Into<Dirty<f64>> for f64 {
     fn into(self) -> Dirty<f64> {
@@ -156,19 +171,30 @@ impl Into<Dirty<f32>> for f32 {
     }
 }
 
-impl<F> Eq for Fin<F>
+impl<F> Into<Dirty<F>> for Clean<F>
+where
+    F: Float + NanPack<usize>,
+    Self: UncheckedConv<F>,
+{
+    fn into(self) -> Dirty<F> {
+        Dirty::new(self.as_raw())
+    }
+}
+
+
+impl<F> Eq for Clean<F>
 where
     F: Float,
-    Fin<F>: PartialEq,
+    Clean<F>: PartialEq,
 {
 }
 
 
-impl<F> Ord for Fin<F>
+impl<F> Ord for Clean<F>
 where
     F: Float,
 {
-    fn cmp(&self, other: &Fin<F>) -> Ordering {
+    fn cmp(&self, other: &Clean<F>) -> Ordering {
         let a = self.as_raw();
         let b = other.as_raw();
 
@@ -182,7 +208,7 @@ where
     }
 }
 
-impl<F> fmt::Display for Fin<F>
+impl<F> fmt::Display for Clean<F>
 where
     F: Float + fmt::Display,
     Self: UncheckedConv<F>,

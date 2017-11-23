@@ -35,18 +35,13 @@ mod nanpack;
 
 use num_traits::float::Float;
 pub use failure::Error;
-use error::{FloatError, ErrorBuffer};
+use error::{FloatError, FLOAT_ERROR_BUFFER};
 use nanpack::NanPack;
 
-#[cfg(not(build = "release"))]
-lazy_static! {
-    pub(crate) static ref FLOAT_ERROR_BUFFER: ErrorBuffer = Default::default();
-}
-
-pub type F64 = Fin<f64>;
+pub type F64 = Clean<f64>;
 pub type DirtyF64 = Dirty<f64>;
 
-pub type F32 = Fin<f32>;
+pub type F32 = Clean<f32>;
 pub type DirtyF32 = Dirty<f32>;
 
 pub trait UncheckedConv<F>
@@ -63,7 +58,7 @@ where
     fn from_raw(F) -> Self;
 }
 
-// some macro helpers to replicate all the methods for FinFloat from Float
+// some macro helpers to replicate all the methods for CleanFloat from Float
 macro_rules! non_tainting_method {
     ($method_name: ident) => {
         #[inline]
@@ -88,7 +83,7 @@ macro_rules! tainting_method {
     };
 }
 
-pub trait FinFloat<F>
+pub trait CleanFloat<F>
 where
     F: Float + NanPack<usize>,
     Self: Sized + UncheckedConv<F>,
@@ -163,31 +158,31 @@ where
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct Fin<F: Float>(F);
+pub struct Clean<F: Float>(F);
 #[derive(Debug, Copy, Clone)]
 pub struct Dirty<F: Float>(F);
 
 
-impl<F> FinFloat<F> for Fin<F>
+impl<F> CleanFloat<F> for Clean<F>
 where
     F: Float + NanPack<usize>,
-    Fin<F>: UncheckedConv<F>,
+    Clean<F>: UncheckedConv<F>,
 {
 }
 
-impl<F> FinFloat<F> for Dirty<F>
+impl<F> CleanFloat<F> for Dirty<F>
 where
     F: Float + NanPack<usize>,
     Dirty<F>: UncheckedConv<F>,
 {
 }
 
-impl<F> Fin<F>
+impl<F> Clean<F>
 where
     F: Float + NanPack<usize>,
 {
     #[inline]
-    pub fn try_new(f: F) -> Result<Fin<F>, FloatError> {
+    pub fn try_new(f: F) -> Result<Clean<F>, FloatError> {
         if f.is_nan() {
             if cfg!(not(build = "release")) {
                 if let Some(errno) = f.get_payload() {
@@ -196,7 +191,7 @@ where
             }
             return Err(FloatError::sanitization(f).into());
         }
-        Ok(Fin::from_raw(f))
+        Ok(Clean::from_raw(f))
     }
 }
 
@@ -210,12 +205,12 @@ where
     }
 
     #[inline]
-    pub fn sanitize(self) -> Result<Fin<F>, FloatError> {
-        Fin::try_new(self.as_raw())
+    pub fn sanitize(self) -> Result<Clean<F>, FloatError> {
+        Clean::try_new(self.as_raw())
     }
 }
 
-impl<F: Float> UncheckedConv<F> for Fin<F> {
+impl<F: Float> UncheckedConv<F> for Clean<F> {
     #[inline]
     fn as_raw(self) -> F {
         self.0
@@ -223,7 +218,7 @@ impl<F: Float> UncheckedConv<F> for Fin<F> {
 
     #[inline]
     fn from_raw(f: F) -> Self {
-        Fin(f)
+        Clean(f)
     }
 }
 
