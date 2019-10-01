@@ -1,4 +1,4 @@
-# `fin` - finite, NaN-free floiting point numbers for rust
+# `fin` - finite, NaN-free floating point numbers for rust
 
 Working with floats can be a bit of a pain in the backside, since floats can
 carry errors conditions that are not handled by the type system.
